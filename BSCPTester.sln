@@ -1,0 +1,37 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.36203.30
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BSCPTester", "BSCPTester\BSCPTester.csproj", "{AE9D6412-76A1-41EC-B3E8-7CDA08D5FC19}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CommonAPI", "CommonAPI\CommonAPI.csproj", "{B23EBBE0-C880-4450-832C-96C52DC29304}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Server", "Server\Server.csproj", "{ACD94A90-073D-44CD-945F-34E0E05C546A}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{AE9D6412-76A1-41EC-B3E8-7CDA08D5FC19}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AE9D6412-76A1-41EC-B3E8-7CDA08D5FC19}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AE9D6412-76A1-41EC-B3E8-7CDA08D5FC19}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AE9D6412-76A1-41EC-B3E8-7CDA08D5FC19}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B23EBBE0-C880-4450-832C-96C52DC29304}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B23EBBE0-C880-4450-832C-96C52DC29304}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B23EBBE0-C880-4450-832C-96C52DC29304}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B23EBBE0-C880-4450-832C-96C52DC29304}.Release|Any CPU.Build.0 = Release|Any CPU
+		{ACD94A90-073D-44CD-945F-34E0E05C546A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{ACD94A90-073D-44CD-945F-34E0E05C546A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{ACD94A90-073D-44CD-945F-34E0E05C546A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{ACD94A90-073D-44CD-945F-34E0E05C546A}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {EBDE065A-3796-4325-B24E-9317F5B520C3}
+	EndGlobalSection
+EndGlobal
