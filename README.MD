@@ -96,6 +96,7 @@ You have been warned.
 ## 🩷 Credits
 
 Created by a developer who stared too long into the abyss of Microsoft data types and emerged stronger — and stranger.
-ChatGPT for thsi Readme
+
+ChatGPT for this Readme
 
 Glory to Towa.
