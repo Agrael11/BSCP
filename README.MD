@@ -83,7 +83,7 @@ Server -> I got it. AES mode engaged.
 
 ---
 
-## 🧪 How Checksums Work
+## 🧪 How Checksums for strings Work
 
 Each character:
 
@@ -92,7 +92,6 @@ Each character:
   * 8-bit ASCII char
   * 2-bit high checksum
   * 2-bit low checksum
-  * 1-bit client flag
 * Checksum is calculated as:
 
   ```text
