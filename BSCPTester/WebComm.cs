@@ -1,5 +1,6 @@
 ﻿using CommonAPI;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 
 namespace BSCPTester
 {
@@ -8,6 +9,7 @@ namespace BSCPTester
         private int port;
         private TcpClient client;
         private Stream stream;
+        private CrazyRSA? rsa = null; // RSA encryption object, can be set later
 
         enum MessageType
         {
@@ -65,8 +67,12 @@ namespace BSCPTester
                 client.Connect("localhost", port);
                 stream = client.GetStream();
                 WriteLine("Connected to server.");
-                SendHandshake();
-                SendVersion(1);
+                SendStartHandshake();
+                SendVersion(2);
+                SendPublicRSAKey();
+                ReceivePublicRSAKey();
+                ReceivePublicAESKey();
+                rsa.EnableAES();
             }
             catch (Exception ex)
             {
@@ -74,9 +80,12 @@ namespace BSCPTester
             }
         }
 
-        public byte[] ReadStream(int length, int count = 1)
+        public byte[] ReadStreamPureLength(int length, int count = 1)
         {
-            length = (length * count + 7) / 8;
+            if (rsa is not null)
+            {
+                length = rsa.GetPaddedSize(length);
+            }
             byte[] buffer = new byte[length];
             int bytesRead = 0;
             while (bytesRead < length)
@@ -88,15 +97,41 @@ namespace BSCPTester
                 }
                 bytesRead += read;
             }
+            if (rsa is not null)
+            {
+                buffer = rsa.Decrypt(buffer);
+            }
+
             return buffer;
         }
 
-        private bool SendHandshake()
+        public byte[] ReadStream(int length, int count = 1)
+        {
+            length = (length * count + 7) / 8;
+            return ReadStreamPureLength(length, count);
+        }
+
+        public void WriteStream(byte[] data)
+        {
+            if (data == null || data.Length == 0)
+            {
+                throw new ArgumentException("Data to write cannot be null or empty.", nameof(data));
+            }
+
+            if (rsa is not null)
+            {
+                data = rsa.Encrypt(data);
+            }
+
+            stream.Write(data, 0, data.Length);
+        }
+
+        private bool SendStartHandshake()
         {
             CrazyHandshake handshake = new CrazyHandshake(CrazyHandshake.HandshakeType.ClientHello);
             var data = new CrazyType[] { handshake };
             var bytes = CrazyType.ToByteArray(data, true);
-            stream.Write(bytes, 0, bytes.Length);
+            WriteStream(bytes);
             var responsedata = ReadStream(CrazyHandshake.CharacterSize);
             var response = CrazyType.FromByteArray(responsedata, false, CrazyHandshake.CharacterSize)[0];
             var responsehs = new CrazyHandshake(response);
@@ -114,7 +149,7 @@ namespace BSCPTester
             var versionValue = new CrazyVersion(version);
             var data = new CrazyType[] { versionValue };
             var bytes = CrazyType.ToByteArray(data, true);
-            stream.Write(bytes, 0, bytes.Length);
+            WriteStream(bytes);
             var response = ReceiveReceiveStatus();
             if (response == CrazyReceiveStatus.Status.Success)
             {
@@ -128,12 +163,22 @@ namespace BSCPTester
             return false;
         }
 
+        public void SendPublicRSAKey()
+        {
+            var newrsa = new CrazyRSA();
+            var bytes = newrsa.ExportRSAKey();
+            SendTBNumber(bytes.Length, false);
+            WriteStream(bytes);
+            WriteLine("Public key sent to server.");
+            rsa = newrsa; // Update the rsa object to the new one
+        }
+
         private void SendHandshake(CrazyHandshake.HandshakeType type)
         {
             CrazyHandshake handshake = new CrazyHandshake(type);
             var data = new CrazyType[] { handshake };
             var bytes = CrazyType.ToByteArray(data, true);
-            stream.Write(bytes, 0, bytes.Length);
+            WriteStream(bytes);
             WriteLine($"Handshake of type {type} sent to server.");
         }
 
@@ -146,7 +191,7 @@ namespace BSCPTester
             
             if (withShake) SendHandshake(CrazyHandshake.HandshakeType.SendingNumber);
             
-            stream.Write(bytes, 0, bytes.Length);
+            WriteStream(bytes);
             
             if (!withShake)
             {
@@ -182,7 +227,7 @@ namespace BSCPTester
 
             SendHandshake(CrazyHandshake.HandshakeType.SendingString);
             SendTBNumber(messageLength, false);
-            stream.Write(messageData, 0, messageData.Length);
+            WriteStream(messageData);
 
             var response = ReceiveReceiveStatus();
             if (response == CrazyReceiveStatus.Status.Success)
@@ -203,6 +248,50 @@ namespace BSCPTester
             var response = CrazyType.FromByteArray(responseData, false, CrazyHandshake.CharacterSize)[0];
             var handshake = new CrazyHandshake(response);
             return handshake.GetHandshake();
+        }
+
+        public bool ReceivePublicRSAKey()
+        {
+            if (rsa is null)
+            {
+                WriteLine("RSA object is not initialized. Cannot receive public key.", MessageType.Error);
+                return false;
+            }
+            var oldrsa = rsa; // Save the old RSA object
+            rsa = null; // Temporarily set rsa to null to avoid conflicts
+            var length = ReceiveTBNumber().GetValue();
+            var response = ReadStreamPureLength(length);
+            rsa = oldrsa; // Restore the old RSA object 
+            if (rsa.ImportRSAKey(response))
+            {
+                WriteLine("Public key received from server.");
+                return true;
+            }
+            else
+            {
+                WriteLine("Failed to import public key from server.", MessageType.Error);
+                return false;
+            }
+        }
+        public bool ReceivePublicAESKey()
+        {
+            if (rsa is null)
+            {
+                WriteLine("RSA object is not initialized. Cannot receive public key.", MessageType.Error);
+                return false;
+            }
+            var length = ReceiveTBNumber().GetValue();
+            var response = ReadStreamPureLength(length);
+            if (rsa.ImportAESKey(response))
+            {
+                WriteLine("Public AES key received from server.");
+                return true;
+            }
+            else
+            {
+                WriteLine("Failed AES to import public key from server.", MessageType.Error);
+                return false;
+            }
         }
 
         public CrazyTwelveBitNumber ReceiveTBNumber()

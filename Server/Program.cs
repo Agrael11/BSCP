@@ -1,16 +1,13 @@
-﻿#define MOREINFO
+﻿//#define MOREINFO
 
 using CommonAPI;
-using System;
-using System.Diagnostics;
-using System.Text;
 using System.Text.Json.Nodes;
 
 namespace Server
 {
     internal class Program
     {
-        private int version = 1; // Current version of the protocol
+        private int version = 2; // Current version of the protocol
         private const string protocolName = "BSCP";
         int port = 5050;
         enum MessageType
@@ -90,10 +87,12 @@ namespace Server
                 HandleClient(client);
             }
         }
-
-        public byte[] ReadStream(Stream stream, int length, int count = 1)
+        public byte[] ReadStreamPureLength(Stream stream, int length, CrazyRSA? rsa, int count = 1)
         {
-            length = ((length + 1)*count + 7) / 8;
+            if (rsa is not null)
+            {
+                length = rsa.GetPaddedSize(length);
+            }
             byte[] buffer = new byte[length];
             int bytesRead = 0;
             while (bytesRead < length)
@@ -105,27 +104,43 @@ namespace Server
                 }
                 bytesRead += read;
             }
+            if (rsa is not null)
+            {
+                buffer = rsa.Decrypt(buffer);
+            }
 #if MOREINFO
             DebugPrintByteArray(buffer, false);
 #endif
             return buffer;
         }
 
-        public void WriteStream(Stream stream, byte[] data)
+        public byte[] ReadStream(Stream stream, int length, CrazyRSA? rsa, int count = 1)
+        {
+            length = ((length + 1)*count + 7) / 8;
+            return ReadStreamPureLength(stream, length, rsa, count);
+        }
+
+        public void WriteStream(Stream stream, byte[] data, CrazyRSA? rsa)
         {
             if (data == null || data.Length == 0)
             {
                 throw new ArgumentException("Data to write cannot be null or empty.", nameof(data));
             }
+
+            if (rsa is not null)
+            {
+                data = rsa.Encrypt(data);
+            }
+
             stream.Write(data, 0, data.Length);
 #if MOREINFO
             DebugPrintByteArray(data, true);
 #endif
         }
 
-        public CrazyHandshake.HandshakeType ReadHandshake(Stream stream)
+        public CrazyHandshake.HandshakeType ReadHandshake(Stream stream, CrazyRSA? rsa)
         {
-            var data = ReadStream(stream, CrazyHandshake.CharacterSize);
+            var data = ReadStream(stream, CrazyHandshake.CharacterSize, rsa);
             var receveddata = CrazyType.FromByteArray(data, true, CrazyHandshake.CharacterSize);
             var handshake = new CrazyHandshake(receveddata[0]);
             
@@ -133,32 +148,53 @@ namespace Server
             return handshake.GetHandshake();
         }
 
-        public int ReadVersion(Stream stream)
+        public bool ReadPublicKeyRSA(Stream stream, CrazyRSA? rsa)
         {
-            var data = ReadStream(stream, CommonAPI.CrazyVersion.CharacterSize);
+            if (rsa is null)
+            {
+                WebCommWriteLine("RSA object is not initialized. Cannot receive public key.", MessageType.Error);
+                return false;
+            }
+            var length = ReadNumber(stream, null);
+            var response = ReadStreamPureLength(stream, length, null);
+            if (rsa.ImportRSAKey(response))
+            {
+                WebCommWriteLine("Public key received from client.");
+                return true;
+            }
+            else
+            {
+                WebCommWriteLine("Failed to import public key from client.", MessageType.Error);
+                return false;
+            }
+        }
+
+        public int ReadVersion(Stream stream, CrazyRSA? rsa)
+        {
+            var data = ReadStream(stream, CommonAPI.CrazyVersion.CharacterSize, rsa);
             var receveddata = CrazyType.FromByteArray(data, true, CommonAPI.CrazyVersion.CharacterSize);
             var version = new CrazyVersion(receveddata[0]);
             WebCommWriteLine($"Received version: {version.GetVersion()}", MessageType.Client);
             return version.GetVersion();
         }
 
-        public int ReadNumber(Stream stream)
+        public int ReadNumber(Stream stream, CrazyRSA? rsa)
         {
-            var data = ReadStream(stream, CrazyTwelveBitNumber.CharacterSize);
+            var data = ReadStream(stream, CrazyTwelveBitNumber.CharacterSize, rsa);
             var receveddata = CrazyType.FromByteArray(data, true, CrazyTwelveBitNumber.CharacterSize);
             var number = new CrazyTwelveBitNumber(receveddata[0]);
             WebCommWriteLine($"Received number: {number.GetValue()}", MessageType.Client);
             return number.GetValue();
         }
 
-        public string ReadString(Stream stream)
+        public string ReadString(Stream stream, CrazyRSA? rsa)
         {
-            var byteData = ReadStream(stream, CrazyTwelveBitNumber.CharacterSize);
+            var byteData = ReadStream(stream, CrazyTwelveBitNumber.CharacterSize, rsa);
             var receveddata = CrazyType.FromByteArray(byteData, true, CrazyTwelveBitNumber.CharacterSize);
             var lng = new CrazyTwelveBitNumber(receveddata[0]);
             var length = lng.GetValue();
 
-            byteData = ReadStream(stream, CrazyCharacter.CharacterSize, length);
+            byteData = ReadStream(stream, CrazyCharacter.CharacterSize, rsa, length);
             var stringData = CrazyCharacter.FromByteArrayString(byteData, true);
             var text = CrazyCharacter.ToString(stringData);
             var checksumValid = CrazyCharacter.CompareChecksum(stringData, text);
@@ -173,23 +209,43 @@ namespace Server
             return text;
         }
 
-        public void SendHandshake(CrazyHandshake.HandshakeType type, Stream stream)
+        public void SendHandshake(CrazyHandshake.HandshakeType type, Stream stream, CrazyRSA? rsa)
         {
             var handshake = new CrazyHandshake(type);
             var datatosend = CrazyType.ToByteArray([handshake], false);
-            WriteStream(stream, datatosend);
+            WriteStream(stream, datatosend, rsa);
             WebCommWriteLine($"Sent handshake: {Enum.GetName(type)}", MessageType.Client);
         }
 
-        public void SendNumber(int number, Stream stream)
+        public void SendPublicKeyRSA(Stream stream, CrazyRSA rsa)
+        {
+            var bytes = rsa.ExportRSAKey();
+            var length = bytes.Length;
+            SendNumber(length, stream, null);
+            WriteStream(stream, bytes, null);
+            WebCommWriteLine("Public RSA key sent to client.");
+        
+        }
+        
+        public void SendPublicKeyAES(Stream stream, CrazyRSA rsa)
+        {
+            var bytes = rsa.ExportAESKey();
+            var encoded = rsa.Encrypt(bytes);
+            var length = encoded.Length;
+            SendNumber(length, stream, rsa);
+            WriteStream(stream, bytes, rsa);
+            WebCommWriteLine("Public AES key sent to client.");
+        }
+
+        public void SendNumber(int number, Stream stream, CrazyRSA rsa)
         {
             var numberToSend = new CrazyTwelveBitNumber(number);
             var datatosend = CrazyType.ToByteArray([numberToSend], false);
-            WriteStream(stream, datatosend);
+            WriteStream(stream, datatosend, rsa);
             WebCommWriteLine($"Sent number: {number}", MessageType.Client);
         }
 
-        public void SendString(string message, Stream stream)
+        public void SendString(string message, Stream stream, CrazyRSA rsa)
         {
             var messageLength = message.Length;
             var asciiChars = CrazyCharacter.FromString(message);
@@ -202,31 +258,32 @@ namespace Server
                 return;
             }
 
-            SendNumber(messageLength, stream);
+            SendNumber(messageLength, stream, rsa);
             
-            WriteStream(stream, messageData);
+            WriteStream(stream, messageData, rsa);
             
             WebCommWriteLine($"Sent string: {message}", MessageType.Client);
         }
 
-        public void SendOkay(Stream stream)
+        public void SendOkay(Stream stream, CrazyRSA? rsa)
         {
             var versionResponse = new CrazyReceiveStatus(CrazyReceiveStatus.Status.Success);
             var datatosend = CrazyType.ToByteArray([versionResponse], false);
-            WriteStream(stream, datatosend);
+            WriteStream(stream, datatosend, rsa);
             WebCommWriteLine("Sent OK response.", MessageType.Client);
         }
 
-        public void SendFail(Stream stream)
+        public void SendFail(Stream stream, CrazyRSA? rsa)
         {
             var versionResponse = new CrazyReceiveStatus(CrazyReceiveStatus.Status.Failure);
             var datatosend = CrazyType.ToByteArray([versionResponse], false);
-            WriteStream(stream, datatosend);
+            WriteStream(stream, datatosend, rsa);
             WebCommWriteLine("Sent failure response.", MessageType.Client);
         }
 
         public void HandleClient(System.Net.Sockets.TcpClient client)
         {
+            var rsa = new CrazyRSA();
             int stage = 0;
             int lastnumber = 0;
             // Code to handle client communication
@@ -240,43 +297,47 @@ namespace Server
                     }
                     if (stage == 0)
                     {
-                        var shake = ReadHandshake(stream);
+                        var shake = ReadHandshake(stream, null);
                         if (shake != CrazyHandshake.HandshakeType.ClientHello)
                         {
                             WebCommWriteLine("Invalid handshake type received.", MessageType.Error);
                             break;
                         }
-                        SendHandshake(CrazyHandshake.HandshakeType.ServerHello, stream);
-                        var version = ReadVersion(stream);
+                        SendHandshake(CrazyHandshake.HandshakeType.ServerHello, stream, null);
+                        var version = ReadVersion(stream, null);
                         if (version != this.version)
                         {
                             WebCommWriteLine("Unsupported version received.", MessageType.Error);
-                            SendFail(stream);
+                            SendFail(stream, null);
                             break;
                         }
                         else
                         {
-                            SendOkay(stream);
+                            SendOkay(stream, null);
                             stage++;
                         }
+                        ReadPublicKeyRSA(stream, rsa);
+                        SendPublicKeyRSA(stream, rsa);
+                        SendPublicKeyAES(stream, rsa);
+                        rsa.EnableAES();
                     }
                     else if (stage == 1)
                     {
-                        var handshake = ReadHandshake(stream);
+                        var handshake = ReadHandshake(stream, rsa);
                         switch (handshake)
                         {
                             case CrazyHandshake.HandshakeType.SendingNumber:
-                                var number = ReadNumber(stream);
+                                var number = ReadNumber(stream, rsa);
                                 if (number == 0x3C)
                                 {
                                     WebCommWriteLine("... 0x3C = Activating Json Mode.", MessageType.Action);
                                 }
                                 lastnumber = number;
-                                SendOkay(stream);
+                                SendOkay(stream, rsa);
                                 break;
                             case CrazyHandshake.HandshakeType.SendingString:
-                                var text = ReadString(stream);
-                                SendOkay(stream);
+                                var text = ReadString(stream, rsa);
+                                SendOkay(stream, rsa);
                                 if (lastnumber == 0x3C)
                                 {
                                     var json = JsonObject.Parse(text);
@@ -304,7 +365,7 @@ namespace Server
                                                 break;
                                         }
                                         var responseString = responseJson.ToJsonString();
-                                        SendString(responseString, stream);
+                                        SendString(responseString, stream, rsa);
                                     }
                                 }
                                 break;
